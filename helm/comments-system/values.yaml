@@ -1,0 +1,345 @@
+# Configuración global
+global:
+  namespace: default  # Será sobrescrito por GitHub Actions
+  domain: apps.sandbox.openshiftapps.com  # Será sobrescrito por GitHub Actions
+  registry: docker.io
+  registryUser: bryanbeltranv
+
+# Lista de microservicios
+microservices:
+  - name: frontend
+    enabled: true
+    image:
+      repository: bryanbeltranv/comments-system-frontend
+      tag: latest
+      pullPolicy: Always
+
+    replicas: 2
+
+    port: 80
+    targetPort: 80
+
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "256Mi"
+        cpu: "200m"
+
+    livenessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 30
+      periodSeconds: 10
+
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 10
+      periodSeconds: 5
+
+    env:
+      - name: BACKEND_API_URL
+        value: "http://backend-api:3000"
+
+    # Configuración para Route (solo frontend necesita exposición externa)
+    route:
+      enabled: true
+      host: ""  # OpenShift asignará automáticamente
+      tls:
+        enabled: true
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+
+    # HPA
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 5
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+
+    # Labels para NetworkPolicies
+    labels:
+      app: comments-system
+      component: frontend
+      tier: presentation
+
+  - name: backend-api
+    enabled: true
+    image:
+      repository: bryanbeltranv/comments-system-backend-api
+      tag: latest
+      pullPolicy: Always
+
+    replicas: 2
+
+    port: 3000
+    targetPort: 3000
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "200m"
+      limits:
+        memory: "512Mi"
+        cpu: "400m"
+
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 3000
+      initialDelaySeconds: 30
+      periodSeconds: 10
+
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 3000
+      initialDelaySeconds: 15
+      periodSeconds: 5
+
+    env:
+      - name: PORT
+        value: "3000"
+      - name: BACKEND_DATA_URL
+        value: "http://backend-data:3001"
+      - name: NODE_ENV
+        value: "production"
+
+    route:
+      enabled: false  # No expuesto externamente
+
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+
+    labels:
+      app: comments-system
+      component: backend-api
+      tier: application
+
+  - name: backend-data
+    enabled: true
+    image:
+      repository: bryanbeltranv/comments-system-backend-data
+      tag: latest
+      pullPolicy: Always
+
+    replicas: 2
+
+    port: 3001
+    targetPort: 3001
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "200m"
+      limits:
+        memory: "512Mi"
+        cpu: "400m"
+
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 3001
+      initialDelaySeconds: 45
+      periodSeconds: 10
+      failureThreshold: 5
+
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 3001
+      initialDelaySeconds: 30
+      periodSeconds: 5
+      failureThreshold: 3
+
+    env:
+      - name: PORT
+        value: "3001"
+      - name: DB_HOST
+        value: "postgres"
+      - name: DB_PORT
+        value: "5432"
+      - name: DB_NAME
+        valueFrom:
+          secretKeyRef:
+            name: postgres-secret
+            key: database
+      - name: DB_USER
+        valueFrom:
+          secretKeyRef:
+            name: postgres-secret
+            key: username
+      - name: DB_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: postgres-secret
+            key: password
+      - name: NODE_ENV
+        value: "production"
+
+    route:
+      enabled: false
+
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 75
+      targetMemoryUtilizationPercentage: 85
+
+    labels:
+      app: comments-system
+      component: backend-data
+      tier: data-access
+
+  - name: postgres
+    enabled: true
+    image:
+      repository: postgres
+      tag: "15-alpine"
+      pullPolicy: IfNotPresent
+
+    replicas: 1  # Database no debe escalar horizontalmente
+
+    port: 5432
+    targetPort: 5432
+
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+    livenessProbe:
+      exec:
+        command:
+          - pg_isready
+          - -U
+          - postgres
+      initialDelaySeconds: 30
+      periodSeconds: 10
+
+    readinessProbe:
+      exec:
+        command:
+          - pg_isready
+          - -U
+          - postgres
+      initialDelaySeconds: 10
+      periodSeconds: 5
+
+    env:
+      - name: POSTGRES_DB
+        valueFrom:
+          secretKeyRef:
+            name: postgres-secret
+            key: database
+      - name: POSTGRES_USER
+        valueFrom:
+          secretKeyRef:
+            name: postgres-secret
+            key: username
+      - name: POSTGRES_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: postgres-secret
+            key: password
+      - name: PGDATA
+        value: /var/lib/postgresql/data/pgdata
+
+    # Almacenamiento persistente
+    persistence:
+      enabled: true
+      storageClass: ""  # OpenShift asignará el default
+      accessMode: ReadWriteOnce
+      size: 5Gi
+      mountPath: /var/lib/postgresql/data
+
+    route:
+      enabled: false
+
+    autoscaling:
+      enabled: false  # Database no debe autoescalar
+
+    labels:
+      app: comments-system
+      component: postgres
+      tier: database
+
+# Secrets
+secrets:
+  postgres:
+    name: postgres-secret
+    data:
+      database: Y29tbWVudHNfZGI=      # Base64: comments_db
+      username: cG9zdGdyZXM=          # Base64: postgres
+      password: cG9zdGdyZXNAMTIzNDU=  # Base64: postgres@12345
+
+# ConfigMaps (si se necesitan)
+configmaps: []
+
+# NetworkPolicies
+networkPolicies:
+  enabled: true
+
+  # Default Deny All
+  denyAll:
+    enabled: true
+
+  # Reglas específicas
+  rules:
+    - name: allow-frontend-to-backend-api
+      podSelector:
+        component: backend-api
+      ingress:
+        - from:
+            - podSelector:
+                component: frontend
+          ports:
+            - protocol: TCP
+              port: 3000
+
+    - name: allow-backend-api-to-backend-data
+      podSelector:
+        component: backend-data
+      ingress:
+        - from:
+            - podSelector:
+                component: backend-api
+          ports:
+            - protocol: TCP
+              port: 3001
+
+    - name: allow-backend-data-to-postgres
+      podSelector:
+        component: postgres
+      ingress:
+        - from:
+            - podSelector:
+                component: backend-data
+          ports:
+            - protocol: TCP
+              port: 5432
+
+    - name: allow-ingress-to-frontend
+      podSelector:
+        component: frontend
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  network.openshift.io/policy-group: ingress
+          ports:
+            - protocol: TCP
+              port: 80

@@ -1,0 +1,25 @@
+{{- range $service := .Values.microservices }}
+{{- if $service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $service.name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- range $key, $value := $service.labels }}
+    {{ $key }}: {{ $value }}
+    {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $service.port }}
+      targetPort: {{ $service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- range $key, $value := $service.labels }}
+    {{ $key }}: {{ $value }}
+    {{- end }}
+{{- end }}
+{{- end }}
