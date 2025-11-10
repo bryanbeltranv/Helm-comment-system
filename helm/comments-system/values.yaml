@@ -10,7 +10,7 @@ microservices:
   - name: frontend
     enabled: true
     image:
-      repository: bryanbeltranv/comments-system-frontend
+      repository: bryanbeltranv/frontend
       tag: latest
       pullPolicy: Always
 
@@ -71,8 +71,8 @@ microservices:
   - name: backend-api
     enabled: true
     image:
-      repository: bryanbeltranv/comments-system-backend-api
-      tag: latest
+      repository: bryanbeltranv/backend-api
+      tag: tagname
       pullPolicy: Always
 
     replicas: 2
@@ -128,7 +128,7 @@ microservices:
   - name: backend-data
     enabled: true
     image:
-      repository: bryanbeltranv/comments-system-backend-data
+      repository: bryanbeltranv/backend-data
       tag: latest
       pullPolicy: Always
 
