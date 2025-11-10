@@ -72,7 +72,7 @@ microservices:
     enabled: true
     image:
       repository: bryanbeltranv/backend-api
-      tag: tagname
+      tag: latest
       pullPolicy: Always
 
     replicas: 2
