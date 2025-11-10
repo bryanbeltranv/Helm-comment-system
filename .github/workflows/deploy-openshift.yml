@@ -66,7 +66,6 @@ jobs:
         run: |
           helm upgrade --install comments-system ${{ env.HELM_CHART_PATH }} \
             --namespace ${{ secrets.OPENSHIFT_NAMESPACE }} \
-            --create-namespace \
             --set global.namespace=${{ secrets.OPENSHIFT_NAMESPACE }} \
             --set global.domain=${{ secrets.OPENSHIFT_DOMAIN }} \
             --values ${{ env.HELM_CHART_PATH }}/values.yaml \
