@@ -1,0 +1,136 @@
+name: Deploy to OpenShift
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'helm/**'
+      - '.github/workflows/deploy-openshift.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+
+env:
+  HELM_CHART_PATH: ./helm/comments-system
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -sLO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+          oc version
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
+
+      - name: Login to OpenShift
+        run: |
+          oc login --token=${{ secrets.OPENSHIFT_TOKEN }} --server=${{ secrets.OPENSHIFT_SERVER }}
+
+      - name: Set target namespace
+        run: |
+          oc project ${{ secrets.OPENSHIFT_NAMESPACE }}
+
+      - name: Lint Helm chart
+        run: |
+          helm lint ${{ env.HELM_CHART_PATH }}
+
+      - name: Template Helm chart (dry-run)
+        run: |
+          helm template comments-system ${{ env.HELM_CHART_PATH }} \
+            --namespace ${{ secrets.OPENSHIFT_NAMESPACE }} \
+            --set global.namespace=${{ secrets.OPENSHIFT_NAMESPACE }} \
+            --set global.domain=${{ secrets.OPENSHIFT_DOMAIN }} \
+            --values ${{ env.HELM_CHART_PATH }}/values.yaml \
+            --debug
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install comments-system ${{ env.HELM_CHART_PATH }} \
+            --namespace ${{ secrets.OPENSHIFT_NAMESPACE }} \
+            --create-namespace \
+            --set global.namespace=${{ secrets.OPENSHIFT_NAMESPACE }} \
+            --set global.domain=${{ secrets.OPENSHIFT_DOMAIN }} \
+            --values ${{ env.HELM_CHART_PATH }}/values.yaml \
+            --timeout 10m \
+            --wait \
+            --debug
+
+      - name: Verify deployment
+        run: |
+          echo "### Deployments ###"
+          kubectl get deployments -n ${{ secrets.OPENSHIFT_NAMESPACE }}
+          echo ""
+          echo "### Pods ###"
+          kubectl get pods -n ${{ secrets.OPENSHIFT_NAMESPACE }}
+          echo ""
+          echo "### Services ###"
+          kubectl get services -n ${{ secrets.OPENSHIFT_NAMESPACE }}
+          echo ""
+          echo "### PVCs ###"
+          kubectl get pvc -n ${{ secrets.OPENSHIFT_NAMESPACE }}
+          echo ""
+          echo "### NetworkPolicies ###"
+          kubectl get networkpolicies -n ${{ secrets.OPENSHIFT_NAMESPACE }}
+          echo ""
+          echo "### HPAs ###"
+          kubectl get hpa -n ${{ secrets.OPENSHIFT_NAMESPACE }}
+
+      - name: Wait for pods to be ready
+        run: |
+          kubectl wait --for=condition=ready pod \
+            -l app=comments-system \
+            -n ${{ secrets.OPENSHIFT_NAMESPACE }} \
+            --timeout=300s
+
+      - name: Get Routes
+        run: |
+          echo "### Deployed Routes ###"
+          oc get routes -n ${{ secrets.OPENSHIFT_NAMESPACE }} -o wide
+
+      - name: Run verification script
+        run: |
+          chmod +x ./scripts/verify-deployment.sh
+          ./scripts/verify-deployment.sh ${{ secrets.OPENSHIFT_NAMESPACE }}
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo ""
+          echo "📊 Deployment Summary:"
+          echo "- Environment: ${{ github.event.inputs.environment || 'dev' }}"
+          echo "- Namespace: ${{ secrets.OPENSHIFT_NAMESPACE }}"
+          echo "- Chart Version: $(helm list -n ${{ secrets.OPENSHIFT_NAMESPACE }} -o json | jq -r '.[0].chart')"
+          echo ""
+          echo "🌐 Access your application:"
+          oc get route frontend -n ${{ secrets.OPENSHIFT_NAMESPACE }} -o jsonpath='{.spec.host}' | xargs -I {} echo "Frontend URL: https://{}"
+
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"
+          echo ""
+          echo "📋 Recent events:"
+          kubectl get events -n ${{ secrets.OPENSHIFT_NAMESPACE }} --sort-by='.lastTimestamp' | tail -20
+          echo ""
+          echo "📝 Pod logs:"
+          kubectl get pods -n ${{ secrets.OPENSHIFT_NAMESPACE }} -o name | head -3 | xargs -I {} kubectl logs {} -n ${{ secrets.OPENSHIFT_NAMESPACE }} --tail=50

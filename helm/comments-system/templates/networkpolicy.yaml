@@ -1,0 +1,61 @@
+{{- if .Values.networkPolicies.enabled }}
+
+{{- if .Values.networkPolicies.denyAll.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+{{- end }}
+
+{{- range $rule := .Values.networkPolicies.rules }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $rule.name }}
+  namespace: {{ $.Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- range $key, $value := $rule.podSelector }}
+      {{ $key }}: {{ $value }}
+      {{- end }}
+  policyTypes:
+    - Ingress
+  ingress:
+    {{- range $rule.ingress }}
+    - from:
+        {{- range .from }}
+        {{- if .podSelector }}
+        - podSelector:
+            matchLabels:
+              {{- range $key, $value := .podSelector }}
+              {{ $key }}: {{ $value }}
+              {{- end }}
+        {{- end }}
+        {{- if .namespaceSelector }}
+        - namespaceSelector:
+            matchLabels:
+              {{- range $key, $value := .namespaceSelector.matchLabels }}
+              {{ $key }}: {{ $value }}
+              {{- end }}
+        {{- end }}
+        {{- end }}
+      {{- if .ports }}
+      ports:
+        {{- range .ports }}
+        - protocol: {{ .protocol }}
+          port: {{ .port }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+{{- end }}
+
+{{- end }}

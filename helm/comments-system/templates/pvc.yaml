@@ -1,0 +1,25 @@
+{{- range $service := .Values.microservices }}
+{{- if and $service.enabled $service.persistence }}
+{{- if $service.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $service.name }}-pvc
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- range $key, $value := $service.labels }}
+    {{ $key }}: {{ $value }}
+    {{- end }}
+spec:
+  accessModes:
+    - {{ $service.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ $service.persistence.size }}
+  {{- if $service.persistence.storageClass }}
+  storageClassName: {{ $service.persistence.storageClass }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

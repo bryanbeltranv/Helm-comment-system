@@ -1,0 +1,32 @@
+{{- range $service := .Values.microservices }}
+{{- if and $service.enabled $service.route.enabled }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ $service.name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- range $key, $value := $service.labels }}
+    {{ $key }}: {{ $value }}
+    {{- end }}
+spec:
+  {{- if $service.route.host }}
+  host: {{ $service.route.host }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ $service.name }}
+    weight: 100
+  port:
+    targetPort: http
+  {{- if $service.route.tls }}
+  {{- if $service.route.tls.enabled }}
+  tls:
+    termination: {{ $service.route.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ $service.route.tls.insecureEdgeTerminationPolicy }}
+  {{- end }}
+  {{- end }}
+  wildcardPolicy: None
+{{- end }}
+{{- end }}
