@@ -1,0 +1,99 @@
+name: Cleanup Helm Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "yes" to confirm uninstall'
+        required: true
+        default: 'no'
+
+env:
+  RELEASE_NAME: comments-system
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "yes" ]; then
+            echo "❌ Cleanup cancelled. You must type 'yes' to confirm."
+            exit 1
+          fi
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -sLO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+          oc version
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
+
+      - name: Login to OpenShift
+        run: |
+          oc login --token=${{ secrets.OPENSHIFT_TOKEN }} --server=${{ secrets.OPENSHIFT_SERVER }}
+
+      - name: Set target namespace
+        run: |
+          oc project ${{ secrets.OPENSHIFT_NAMESPACE }}
+
+      - name: Check if release exists
+        id: check_release
+        run: |
+          if helm list -n ${{ secrets.OPENSHIFT_NAMESPACE }} | grep -q ${{ env.RELEASE_NAME }}; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✓ Release '${{ env.RELEASE_NAME }}' found"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✗ Release '${{ env.RELEASE_NAME }}' not found"
+          fi
+
+      - name: Show release history
+        if: steps.check_release.outputs.exists == 'true'
+        run: |
+          echo "### Release History ###"
+          helm history ${{ env.RELEASE_NAME }} -n ${{ secrets.OPENSHIFT_NAMESPACE }}
+
+      - name: Uninstall release
+        if: steps.check_release.outputs.exists == 'true'
+        run: |
+          echo "Uninstalling release '${{ env.RELEASE_NAME }}'..."
+          helm uninstall ${{ env.RELEASE_NAME }} -n ${{ secrets.OPENSHIFT_NAMESPACE }}
+          echo "✅ Release uninstalled successfully!"
+
+      - name: Verify cleanup
+        run: |
+          echo "### Remaining Resources ###"
+          echo ""
+          echo "Deployments:"
+          kubectl get deployments -n ${{ secrets.OPENSHIFT_NAMESPACE }} || echo "No deployments found"
+          echo ""
+          echo "Pods:"
+          kubectl get pods -n ${{ secrets.OPENSHIFT_NAMESPACE }} || echo "No pods found"
+          echo ""
+          echo "Services:"
+          kubectl get services -n ${{ secrets.OPENSHIFT_NAMESPACE }} || echo "No services found"
+          echo ""
+          echo "PVCs:"
+          kubectl get pvc -n ${{ secrets.OPENSHIFT_NAMESPACE }} || echo "No PVCs found"
+
+      - name: Cleanup Summary
+        run: |
+          echo "================================================"
+          echo "  Cleanup Completed"
+          echo "================================================"
+          echo ""
+          echo "✅ Helm release '${{ env.RELEASE_NAME }}' has been uninstalled"
+          echo ""
+          echo "Next steps:"
+          echo "  1. Go to Actions → Deploy to OpenShift"
+          echo "  2. Click 'Run workflow'"
+          echo "  3. Select branch: claude/k8s-deployment-spec-011CUzp6qW4Kt6SCuEcYi8tP"
+          echo "  4. Select environment: dev"
+          echo "  5. Deploy fresh installation"
