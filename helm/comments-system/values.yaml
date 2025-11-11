@@ -291,11 +291,11 @@ configmaps: []
 
 # NetworkPolicies
 networkPolicies:
-  enabled: true
+  enabled: false  # Deshabilitado temporalmente para troubleshooting
 
   # Default Deny All
   denyAll:
-    enabled: true
+    enabled: false
 
   # Reglas específicas
   rules:
